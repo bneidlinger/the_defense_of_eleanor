@@ -56,8 +56,7 @@ export class Villager {
     if (!this.task) this.pickTask(scene);
 
     if (this.task) {
-      const c = this.task.center;
-      const d = Math.hypot(c.x - this.x, c.y - this.y);
+      const d = this.distToBuilding(this.task);
       if (d <= VILLAGER.workRange) {
         this.path = [];
         this.work(dt, scene);
@@ -73,7 +72,7 @@ export class Villager {
 
   private taskStillValid(b: Building): boolean {
     if (b.dead) return false;
-    if (this.taskKind === "build") return b.type === "foundation";
+    if (this.taskKind === "build") return !b.built;
     return b.isDamaged();
   }
 
@@ -83,7 +82,7 @@ export class Villager {
 
     // Priority 1: build the nearest unfinished foundation.
     for (const b of scene.buildings) {
-      if (b.type !== "foundation") continue;
+      if (b.built) continue;
       const c = b.center;
       const d = (c.x - this.x) ** 2 + (c.y - this.y) ** 2;
       if (d < bestD) { bestD = d; best = b; }
@@ -132,6 +131,14 @@ export class Villager {
     }
   }
 
+  // Distance from the villager to the nearest point of a building's footprint —
+  // works for any footprint size (centre-distance fails for multi-tile builds).
+  private distToBuilding(b: Building): number {
+    const cx = Phaser.Math.Clamp(this.x, b.px, b.px + b.pw);
+    const cy = Phaser.Math.Clamp(this.y, b.py, b.py + b.ph);
+    return Math.hypot(this.x - cx, this.y - cy);
+  }
+
   private advanceToTask(dt: number, scene: GameScene): void {
     this.repathTimer -= dt;
     if (this.path.length === 0 || this.repathTimer <= 0) {
@@ -156,7 +163,7 @@ export class Villager {
       if (!scene.grid.isBlocked(x, y)) cand.push({ x, y });
     };
     for (const t of b.footprint) { add(t.x + 1, t.y); add(t.x - 1, t.y); add(t.x, t.y + 1); add(t.x, t.y - 1); }
-    if (b.type === "foundation") for (const t of b.footprint) add(t.x, t.y);
+    if (!b.built) for (const t of b.footprint) add(t.x, t.y);
 
     let best: Tile | null = null;
     let bd = Infinity;

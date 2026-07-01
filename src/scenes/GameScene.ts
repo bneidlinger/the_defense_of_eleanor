@@ -1,19 +1,24 @@
 import Phaser from "phaser";
 import {
-  TILE, COLS, ROWS, FIELD_W, FIELD_H, COLORS, PALISADE, ECON_START,
+  TILE, COLS, ROWS, FIELD_W, FIELD_H, COLORS, ECON_START,
   SCENE_GAME, SCENE_UI, type EnemyKind,
 } from "../config";
 import { Grid, type Tile } from "../core/Grid";
 import { findPath as aStar, type PathOpts } from "../core/astar";
 import { Building } from "../entities/Building";
+import { Projectile } from "../entities/Projectile";
 import { Villager } from "../entities/Villager";
 import { Hero } from "../entities/Hero";
 import { Enemy } from "../entities/Enemy";
 import { WaveSystem } from "../systems/WaveSystem";
+import { BUILD_DEFS, BUILDABLES, canAfford, type BuildingDef } from "../data/buildings";
 import { floatingText, popFlash, ringMarker, hex } from "../core/effects";
 
-export type Tool = "palisade" | "none";
+// A build tool is a building id ("palisade", "watchtower", ...) or "none".
+export type Tool = string;
 export type GameState = "playing" | "over";
+
+const DIGIT_KEY: Record<string, string> = { "1": "ONE", "2": "TWO", "3": "THREE", "4": "FOUR", "5": "FIVE" };
 
 // The orchestrator. Owns world state and the per-frame update order, and
 // exposes the small surface the entities call back into.
@@ -26,11 +31,15 @@ export class GameScene extends Phaser.Scene {
   stockpile!: Building;
   wave!: WaveSystem;
 
+  projectiles: Projectile[] = [];
   economy = { wood: 0, gold: 0 };
   tool: Tool = "palisade";
   state: GameState = "playing";
   overReason = "";
   kills = 0;
+  finalScore = 0;
+  bestScore = 0;
+  isNewBest = false;
 
   // Tile bookkeeping: solid tiles -> their building; any tile with a building.
   private occupancy = new Map<number, Building>();
@@ -51,11 +60,15 @@ export class GameScene extends Phaser.Scene {
     this.enemies = [];
     this.occupancy.clear();
     this.tileHasBuilding.clear();
+    this.projectiles = [];
     this.economy = { wood: ECON_START.wood, gold: ECON_START.gold };
     this.tool = "palisade";
     this.state = "playing";
     this.overReason = "";
     this.kills = 0;
+    this.finalScore = 0;
+    this.bestScore = 0;
+    this.isNewBest = false;
     this.dragging = false;
     this.lastPlacedIdx = -1;
     this.banner = undefined;
@@ -64,7 +77,7 @@ export class GameScene extends Phaser.Scene {
 
     const cx = Math.floor(COLS / 2) - 1;
     const cy = Math.floor(ROWS / 2) - 1;
-    this.stockpile = new Building(this, cx, cy, "stockpile");
+    this.stockpile = new Building(this, cx, cy, BUILD_DEFS.stockpile, true);
     this.registerStatic(this.stockpile);
 
     const sc = this.stockpile.center;
@@ -78,7 +91,10 @@ export class GameScene extends Phaser.Scene {
     this.input.on("pointerdown", this.onPointerDown, this);
     this.input.on("pointermove", this.onPointerMove, this);
     this.input.on("pointerup", this.onPointerUp, this);
-    this.input.keyboard?.on("keydown-ONE", () => { if (this.state === "playing") this.tool = "palisade"; });
+    for (const def of BUILDABLES) {
+      const evt = def.hotkey ? DIGIT_KEY[def.hotkey] : undefined;
+      if (evt) this.input.keyboard?.on("keydown-" + evt, () => { if (this.state === "playing") this.tool = def.id; });
+    }
     this.input.keyboard?.on("keydown-ESC", () => { if (this.state === "playing") this.tool = "none"; });
     this.input.keyboard?.on("keydown-R", () => { if (this.state === "over") this.restart(); });
 
@@ -95,6 +111,15 @@ export class GameScene extends Phaser.Scene {
     this.villager.update(dt, this);
     this.hero.update(dt, this);
     for (const e of this.enemies) e.update(dt, this);
+    for (const b of this.buildings) b.update(dt, this);   // towers acquire & fire
+    for (const p of this.projectiles) p.update(dt, this); // arrows fly & strike
+
+    // Reap spent projectiles.
+    if (this.projectiles.length > 0) {
+      const flying: Projectile[] = [];
+      for (const p of this.projectiles) { if (p.alive) flying.push(p); else p.destroy(); }
+      this.projectiles = flying;
+    }
 
     // Reap dead enemies (award bounty).
     if (this.enemies.length > 0) {
@@ -148,6 +173,10 @@ export class GameScene extends Phaser.Scene {
 
   spawnEnemy(kind: EnemyKind, x: number, y: number): void {
     this.enemies.push(new Enemy(this, kind, x, y));
+  }
+
+  fireProjectile(x: number, y: number, target: Enemy, damage: number): void {
+    this.projectiles.push(new Projectile(this, x, y, target, damage));
   }
 
   announceWave(w: number): void {
@@ -215,18 +244,27 @@ export class GameScene extends Phaser.Scene {
     void b;
   }
 
-  private canPlace(tx: number, ty: number): boolean {
-    if (!this.grid.inBounds(tx, ty)) return false;
-    if (this.tileHasBuilding.has(this.grid.idx(tx, ty))) return false;
-    if (this.economy.wood < (PALISADE.cost.wood ?? 0)) return false;
-    return true;
+  private currentDef(): BuildingDef | null {
+    return this.tool === "none" ? null : BUILD_DEFS[this.tool] ?? null;
+  }
+
+  private canPlace(tx: number, ty: number, def: BuildingDef): boolean {
+    for (let dy = 0; dy < def.footprint.h; dy++)
+      for (let dx = 0; dx < def.footprint.w; dx++) {
+        const x = tx + dx, y = ty + dy;
+        if (!this.grid.inBounds(x, y)) return false;
+        if (this.tileHasBuilding.has(this.grid.idx(x, y))) return false;
+      }
+    return canAfford(this.economy, def.cost);
   }
 
   private tryPlaceAt(tx: number, ty: number): boolean {
-    if (!this.canPlace(tx, ty)) return false;
-    this.economy.wood -= PALISADE.cost.wood ?? 0;
-    const b = new Building(this, tx, ty, "foundation");
-    this.tileHasBuilding.add(this.grid.idx(tx, ty));
+    const def = this.currentDef();
+    if (!def || !this.canPlace(tx, ty, def)) return false;
+    this.economy.wood -= def.cost.wood ?? 0;
+    this.economy.gold -= def.cost.gold ?? 0;
+    const b = new Building(this, tx, ty, def, false);
+    for (const t of b.footprint) this.tileHasBuilding.add(this.grid.idx(t.x, t.y));
     this.buildings.push(b);
     return true;
   }
@@ -243,7 +281,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    if (this.tool === "palisade") {
+    if (this.currentDef()) {
       this.dragging = true;
       const t = this.grid.worldToTile(pointer.worldX, pointer.worldY);
       this.tryPlaceAt(t.x, t.y);
@@ -257,8 +295,9 @@ export class GameScene extends Phaser.Scene {
       ? this.grid.worldToTile(pointer.worldX, pointer.worldY)
       : null;
 
-    if (this.dragging && this.tool === "palisade" && pointer.isDown && !pointer.rightButtonDown()
-        && pointer.worldY < FIELD_H) {
+    const def = this.currentDef();
+    if (this.dragging && def && def.footprint.w === 1 && def.footprint.h === 1
+        && pointer.isDown && !pointer.rightButtonDown() && pointer.worldY < FIELD_H) {
       const t = this.grid.worldToTile(pointer.worldX, pointer.worldY);
       const i = this.grid.idx(t.x, t.y);
       if (i !== this.lastPlacedIdx) {
@@ -277,14 +316,16 @@ export class GameScene extends Phaser.Scene {
   private drawGhost(): void {
     const g = this.ghost;
     g.clear();
-    if (this.state !== "playing" || this.tool !== "palisade" || !this.hoverTile) return;
+    const def = this.currentDef();
+    if (this.state !== "playing" || !def || !this.hoverTile) return;
     const t = this.hoverTile;
     if (!this.grid.inBounds(t.x, t.y)) return;
-    const col = this.canPlace(t.x, t.y) ? COLORS.ghostOk : COLORS.ghostBad;
-    g.fillStyle(col, 0.32);
-    g.fillRect(t.x * TILE + 1, t.y * TILE + 1, TILE - 2, TILE - 2);
+    const col = this.canPlace(t.x, t.y, def) ? COLORS.ghostOk : COLORS.ghostBad;
+    const w = def.footprint.w * TILE, h = def.footprint.h * TILE;
+    g.fillStyle(col, 0.30);
+    g.fillRect(t.x * TILE + 1, t.y * TILE + 1, w - 2, h - 2);
     g.lineStyle(1.5, col, 0.9);
-    g.strokeRect(t.x * TILE + 1, t.y * TILE + 1, TILE - 2, TILE - 2);
+    g.strokeRect(t.x * TILE + 1, t.y * TILE + 1, w - 2, h - 2);
   }
 
   private showBanner(text: string, color: number): void {
@@ -302,7 +343,27 @@ export class GameScene extends Phaser.Scene {
     if (this.state === "over") return;
     this.state = "over";
     this.overReason = reason;
+    this.finalScore = this.score;
+    this.bestScore = this.loadBest();
+    this.isNewBest = false;
+    if (this.finalScore > this.bestScore) {
+      this.bestScore = this.finalScore;
+      this.isNewBest = true;
+      this.saveBest(this.finalScore);
+    }
     this.ghost.clear();
+  }
+
+  get score(): number {
+    return this.wave.wave * 1000 + this.kills * 25;
+  }
+
+  private loadBest(): number {
+    try { return parseInt(localStorage.getItem("eleanor.best") ?? "0", 10) || 0; } catch { return 0; }
+  }
+
+  private saveBest(v: number): void {
+    try { localStorage.setItem("eleanor.best", String(v)); } catch { /* ignore */ }
   }
 
   restart(): void {

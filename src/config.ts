@@ -33,6 +33,11 @@ export const COLORS = {
   stockpile: 0xd0a93a,
   stockpileStroke: 0x8a6c14,
 
+  tower: 0x9a8f77,
+  towerStroke: 0x4f4636,
+  towerRoof: 0x5f5645,
+  projectile: 0xf3e6ad,
+
   villager: 0x74e88a,
   villagerStroke: 0x2f7e43,
   hero: 0x4ea3ff,
@@ -56,16 +61,15 @@ export const COLORS = {
 
 export type ResourceCost = { wood?: number; gold?: number };
 
-// The single buildable in MVP 0: a cheap, fire-prone wooden wall.
-export const PALISADE = {
-  id: "palisade",
-  name: "Palisade",
-  cost: { wood: 10 } as ResourceCost,
-  buildTime: 1.8, // seconds of villager work
-  maxHp: 100,
+// Building definitions now live in src/data/buildings.ts (data-driven since MVP 1).
+
+// Tower arrows / bolts.
+export const PROJECTILE = {
+  speed: 340, // px/sec
+  hitRadius: 9,
+  length: 10,
 };
 
-export const STOCKPILE_HP = 600;
 export const ECON_START = { wood: 120, gold: 30 };
 
 export const VILLAGER = {

@@ -1,10 +1,13 @@
 import Phaser from "phaser";
 import {
-  CANVAS_W, CANVAS_H, FIELD_W, FIELD_H, HUD_H, COLORS, PALISADE,
+  CANVAS_W, CANVAS_H, FIELD_W, FIELD_H, HUD_H, COLORS,
   SCENE_GAME, SCENE_UI,
 } from "../config";
+import { BUILDABLES, canAfford, formatCost, type BuildingDef } from "../data/buildings";
 import { hex } from "../core/effects";
 import type { GameScene } from "./GameScene";
+
+interface BuildButton { def: BuildingDef; rect: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; }
 
 // Parallel overlay scene: reads GameScene state each frame and paints the HUD.
 // No game logic lives here.
@@ -16,14 +19,13 @@ export class UIScene extends Phaser.Scene {
   private heroLabel!: Phaser.GameObjects.Text;
   private waveText!: Phaser.GameObjects.Text;
   private killsText!: Phaser.GameObjects.Text;
-  private hintText!: Phaser.GameObjects.Text;
-  private btnRect!: Phaser.GameObjects.Rectangle;
-  private btnText!: Phaser.GameObjects.Text;
+  private buttons: BuildButton[] = [];
 
   private overlay!: Phaser.GameObjects.Rectangle;
   private overTitle!: Phaser.GameObjects.Text;
   private overReason!: Phaser.GameObjects.Text;
   private overStats!: Phaser.GameObjects.Text;
+  private overScore!: Phaser.GameObjects.Text;
   private overPrompt!: Phaser.GameObjects.Text;
 
   private readonly y0 = FIELD_H; // top of the HUD strip
@@ -45,31 +47,36 @@ export class UIScene extends Phaser.Scene {
     this.villLabel = this.add.text(220, this.y0 + 12, "VILLAGER", { fontFamily: mono, fontSize: "12px", color: hex(COLORS.villager) }).setDepth(52);
     this.heroLabel = this.add.text(220, this.y0 + 46, "WARDEN", { fontFamily: mono, fontSize: "12px", color: hex(COLORS.accent) }).setDepth(52);
 
-    this.waveText = this.add.text(FIELD_W / 2, this.y0 + 22, "", { fontFamily: mono, fontSize: "17px", color: hex(COLORS.warn), fontStyle: "bold" }).setOrigin(0.5).setDepth(52);
-    this.killsText = this.add.text(FIELD_W / 2, this.y0 + 48, "", { fontFamily: mono, fontSize: "13px", color: hex(COLORS.textDim) }).setOrigin(0.5).setDepth(52);
+    this.waveText = this.add.text(FIELD_W / 2 - 40, this.y0 + 22, "", { fontFamily: mono, fontSize: "17px", color: hex(COLORS.warn), fontStyle: "bold" }).setOrigin(0.5).setDepth(52);
+    this.killsText = this.add.text(FIELD_W / 2 - 40, this.y0 + 48, "", { fontFamily: mono, fontSize: "13px", color: hex(COLORS.textDim) }).setOrigin(0.5).setDepth(52);
 
-    // Build button.
-    this.btnRect = this.add.rectangle(CANVAS_W - 130, this.y0 + 30, 230, 44, COLORS.hudPanel)
-      .setStrokeStyle(2, COLORS.hudStroke).setDepth(52)
-      .setInteractive({ useHandCursor: true });
-    this.btnText = this.add.text(CANVAS_W - 130, this.y0 + 30, "", { fontFamily: mono, fontSize: "13px", color: hex(COLORS.text), align: "center" }).setOrigin(0.5).setDepth(53);
-    this.btnRect.on("pointerdown", () => {
-      const gs = this.scene.get(SCENE_GAME) as GameScene;
-      if (gs && gs.state === "playing") gs.tool = "palisade";
-    });
+    // Data-driven build menu, laid out from the right edge.
+    const bw = 190, bh = 44, gap = 10;
+    const totalW = BUILDABLES.length * bw + (BUILDABLES.length - 1) * gap;
+    let bx = CANVAS_W - 16 - totalW;
+    for (const def of BUILDABLES) {
+      const cx = bx + bw / 2, cy = this.y0 + 28;
+      const rect = this.add.rectangle(cx, cy, bw, bh, COLORS.hudPanel).setStrokeStyle(2, COLORS.hudStroke).setDepth(52).setInteractive({ useHandCursor: true });
+      const label = this.add.text(cx, cy, `[${def.hotkey}] ${def.name}\n${formatCost(def.cost)}`, { fontFamily: mono, fontSize: "13px", color: hex(COLORS.text), align: "center" }).setOrigin(0.5).setDepth(53);
+      rect.on("pointerdown", () => { const gs = this.scene.get(SCENE_GAME) as GameScene; if (gs && gs.state === "playing") gs.tool = def.id; });
+      this.buttons.push({ def, rect, label });
+      bx += bw + gap;
+    }
 
-    this.hintText = this.add.text(
-      CANVAS_W - 20, this.y0 + 64,
-      "L-drag: build walls    R-click: move Warden    [1] wall    [Esc] cancel",
+    this.add.text(
+      CANVAS_W - 16, this.y0 + 62,
+      "L-drag: build   R-click: Warden   [1] wall   [2] tower   [Esc] cancel",
       { fontFamily: mono, fontSize: "11px", color: hex(COLORS.textDim) },
     ).setOrigin(1, 0).setDepth(52);
 
     // Defeat overlay (hidden until game over).
-    this.overlay = this.add.rectangle(0, 0, CANVAS_W, CANVAS_H, 0x000000, 0.62).setOrigin(0, 0).setDepth(60).setVisible(false);
-    this.overTitle = this.add.text(CANVAS_W / 2, CANVAS_H / 2 - 70, "DEFEAT", { fontFamily: mono, fontSize: "52px", color: hex(COLORS.danger), fontStyle: "bold" }).setOrigin(0.5).setDepth(61).setVisible(false);
-    this.overReason = this.add.text(CANVAS_W / 2, CANVAS_H / 2 - 16, "", { fontFamily: mono, fontSize: "18px", color: hex(COLORS.text) }).setOrigin(0.5).setDepth(61).setVisible(false);
-    this.overStats = this.add.text(CANVAS_W / 2, CANVAS_H / 2 + 18, "", { fontFamily: mono, fontSize: "16px", color: hex(COLORS.textDim) }).setOrigin(0.5).setDepth(61).setVisible(false);
-    this.overPrompt = this.add.text(CANVAS_W / 2, CANVAS_H / 2 + 64, "Click or press [R] to try a better layout", { fontFamily: mono, fontSize: "16px", color: hex(COLORS.warn) }).setOrigin(0.5).setDepth(61).setVisible(false);
+    const midX = CANVAS_W / 2, midY = CANVAS_H / 2;
+    this.overlay = this.add.rectangle(0, 0, CANVAS_W, CANVAS_H, 0x000000, 0.66).setOrigin(0, 0).setDepth(60).setVisible(false);
+    this.overTitle = this.add.text(midX, midY - 96, "DEFEAT", { fontFamily: mono, fontSize: "52px", color: hex(COLORS.danger), fontStyle: "bold" }).setOrigin(0.5).setDepth(61).setVisible(false);
+    this.overReason = this.add.text(midX, midY - 44, "", { fontFamily: mono, fontSize: "18px", color: hex(COLORS.text) }).setOrigin(0.5).setDepth(61).setVisible(false);
+    this.overStats = this.add.text(midX, midY - 10, "", { fontFamily: mono, fontSize: "16px", color: hex(COLORS.textDim) }).setOrigin(0.5).setDepth(61).setVisible(false);
+    this.overScore = this.add.text(midX, midY + 30, "", { fontFamily: mono, fontSize: "20px", color: hex(COLORS.warn), fontStyle: "bold" }).setOrigin(0.5).setDepth(61).setVisible(false);
+    this.overPrompt = this.add.text(midX, midY + 78, "Click or press [R] to try a better layout", { fontFamily: mono, fontSize: "16px", color: hex(COLORS.warn) }).setOrigin(0.5).setDepth(61).setVisible(false);
   }
 
   override update(): void {
@@ -79,7 +86,7 @@ export class UIScene extends Phaser.Scene {
     this.woodText.setText(`WOOD  ${Math.floor(gs.economy.wood)}`);
     this.goldText.setText(`GOLD  ${Math.floor(gs.economy.gold)}`);
     this.waveText.setText(gs.wave.status(gs));
-    this.killsText.setText(`Kills: ${gs.kills}`);
+    this.killsText.setText(`Kills ${gs.kills}     Score ${gs.score}`);
     this.heroLabel.setText(gs.hero.downed ? "WARDEN — DOWNED" : "WARDEN");
 
     // Unit HP bars.
@@ -88,20 +95,23 @@ export class UIScene extends Phaser.Scene {
     this.bar(g, 220, this.y0 + 28, 150, 9, gs.villager.alive ? gs.villager.hp / gs.villager.maxHp : 0);
     this.bar(g, 220, this.y0 + 62, 150, 9, gs.hero.hp / gs.hero.maxHp);
 
-    // Build button state.
-    const affordable = gs.economy.wood >= (PALISADE.cost.wood ?? 0);
-    const active = gs.tool === "palisade";
-    this.btnRect.setFillStyle(active ? 0x2b4a66 : COLORS.hudPanel);
-    this.btnRect.setStrokeStyle(2, active ? COLORS.accent : COLORS.hudStroke);
-    this.btnText.setText(`[1] ${PALISADE.name}\n${PALISADE.cost.wood} wood`);
-    this.btnText.setColor(affordable ? hex(COLORS.text) : hex(COLORS.danger));
+    // Build menu state.
+    for (const b of this.buttons) {
+      const active = gs.tool === b.def.id;
+      b.rect.setFillStyle(active ? 0x2b4a66 : COLORS.hudPanel);
+      b.rect.setStrokeStyle(2, active ? COLORS.accent : COLORS.hudStroke);
+      b.label.setColor(canAfford(gs.economy, b.def.cost) ? hex(COLORS.text) : hex(COLORS.danger));
+    }
 
-    // Overlay.
+    // Defeat overlay.
     const over = gs.state === "over";
     this.overlay.setVisible(over);
     this.overTitle.setVisible(over);
     this.overReason.setVisible(over).setText(gs.overReason);
     this.overStats.setVisible(over).setText(`Reached Wave ${gs.wave.wave}  •  ${gs.kills} kills`);
+    this.overScore.setVisible(over)
+      .setText(`Score ${gs.finalScore}    Best ${gs.bestScore}${gs.isNewBest ? "   ★ NEW BEST" : ""}`)
+      .setColor(hex(gs.isNewBest ? COLORS.hpGood : COLORS.warn));
     this.overPrompt.setVisible(over);
   }
 
