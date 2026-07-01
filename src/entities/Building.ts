@@ -143,6 +143,15 @@ export class Building {
       g.fillStyle(COLORS.projectile, 1);
       g.fillCircle(c.x, c.y, 3);
       if (ratio <= 0.5) { g.fillStyle(COLORS.wallDamaged, 0.35); g.fillRect(this.px + 1, this.py + 1, this.pw - 2, this.ph - 2); }
+    } else if (this.def.kind === "gate") {
+      g.fillStyle(ratio > 0.5 ? this.def.fill : COLORS.wallDamaged, 1);
+      g.fillRect(this.px + 1, this.py + 1, this.pw - 2, this.ph - 2);
+      g.lineStyle(1.5, this.def.stroke, 1);
+      g.strokeRect(this.px + 1, this.py + 1, this.pw - 2, this.ph - 2);
+      // portcullis: vertical bars + a mid rail
+      g.lineStyle(2, COLORS.gateBar, 0.85);
+      for (let i = 1; i <= 2; i++) { const bx = this.px + (this.pw * i) / 3; g.lineBetween(bx, this.py + 3, bx, this.py + this.ph - 3); }
+      g.lineBetween(this.px + 3, this.py + this.ph / 2, this.px + this.pw - 3, this.py + this.ph / 2);
     } else {
       g.fillStyle(this.def.fill, 1);
       g.fillRect(this.px + 2, this.py + 2, this.pw - 4, this.ph - 4);

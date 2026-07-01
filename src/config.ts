@@ -38,6 +38,10 @@ export const COLORS = {
   towerRoof: 0x5f5645,
   projectile: 0xf3e6ad,
 
+  gate: 0x8a6f45,
+  gateStroke: 0x4a3a20,
+  gateBar: 0x2f2717,
+
   villager: 0x74e88a,
   villagerStroke: 0x2f7e43,
   hero: 0x4ea3ff,

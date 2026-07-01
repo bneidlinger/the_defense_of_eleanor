@@ -13,6 +13,9 @@ export interface PathOpts {
   passWalls?: boolean;
   wallCost?: number;
   maxNodes?: number;
+  // If true, path over the enemy walkability layer (gates are solid); otherwise
+  // the friendly layer (gates are passable).
+  forEnemy?: boolean;
 }
 
 // Octile distance — admissible heuristic for 8-way grids.
@@ -34,8 +37,12 @@ export function findPath(
   const wallCost = opts.wallCost ?? 0;
   const maxNodes = opts.maxNodes ?? 4000;
 
+  // Pick the walkability layer: enemies see gates as solid, friendlies don't.
+  const solidArr = opts.forEnemy ? grid.enemyBlocked : grid.blocked;
+  const isSolid = (x: number, y: number) => !grid.inBounds(x, y) || solidArr[grid.idx(x, y)] === 1;
+
   if (!grid.inBounds(sx, sy) || !grid.inBounds(gx, gy)) return null;
-  if (!passWalls && grid.isBlocked(gx, gy)) return null; // goal unreachable
+  if (!passWalls && isSolid(gx, gy)) return null; // goal unreachable
 
   const cols = grid.cols;
   const n = cols * grid.rows;
@@ -97,13 +104,13 @@ export function findPath(
       const ni = grid.idx(nx, ny);
       if (closed[ni]) continue;
 
-      const blocked = grid.blocked[ni] === 1;
+      const blocked = solidArr[ni] === 1;
       if (blocked && !passWalls) continue;
 
       // No diagonal corner-cutting through solid tiles.
       if (dx !== 0 && dy !== 0) {
-        const sideA = grid.isBlocked(cx + dx, cy);
-        const sideB = grid.isBlocked(cx, cy + dy);
+        const sideA = isSolid(cx + dx, cy);
+        const sideB = isSolid(cx, cy + dy);
         if (!passWalls && (sideA || sideB)) continue;
       }
 

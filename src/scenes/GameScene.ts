@@ -96,7 +96,7 @@ export class GameScene extends Phaser.Scene {
       if (evt) this.input.keyboard?.on("keydown-" + evt, () => { if (this.state === "playing") this.tool = def.id; });
     }
     this.input.keyboard?.on("keydown-ESC", () => { if (this.state === "playing") this.tool = "none"; });
-    this.input.keyboard?.on("keydown-R", () => { if (this.state === "over") this.restart(); });
+    this.input.keyboard?.on("keydown-R", () => { if (this.state === "over") this.restart(); else this.tool = "repair"; });
 
     if (!this.scene.isActive(SCENE_UI)) this.scene.launch(SCENE_UI);
 
@@ -184,9 +184,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   // A foundation finished: turn its tiles solid and shove anyone standing on them out.
+  // Gates block only the enemy layer so friendly units keep passing through.
   onBuildingCompleted(b: Building): void {
+    const friendlySolid = b.def.kind !== "gate";
     for (const t of b.footprint) {
-      this.grid.setBlocked(t.x, t.y, true);
+      if (friendlySolid) this.grid.setBlocked(t.x, t.y, true);
+      this.grid.setEnemyBlocked(t.x, t.y, true);
       this.occupancy.set(this.grid.idx(t.x, t.y), b);
     }
     this.ejectFromWall(b);
@@ -212,6 +215,7 @@ export class GameScene extends Phaser.Scene {
       this.tileHasBuilding.add(this.grid.idx(t.x, t.y));
       if (b.blocks) {
         this.grid.setBlocked(t.x, t.y, true);
+        this.grid.setEnemyBlocked(t.x, t.y, true);
         this.occupancy.set(this.grid.idx(t.x, t.y), b);
       }
     }
@@ -221,25 +225,32 @@ export class GameScene extends Phaser.Scene {
     for (const t of b.footprint) {
       const i = this.grid.idx(t.x, t.y);
       this.grid.setBlocked(t.x, t.y, false);
+      this.grid.setEnemyBlocked(t.x, t.y, false);
       this.occupancy.delete(i);
       this.tileHasBuilding.delete(i);
     }
   }
 
   private ejectFromWall(b: Building): void {
-    const reloc = (px: number, py: number): { x: number; y: number } | null => {
+    const relocFriendly = (px: number, py: number): { x: number; y: number } | null => {
       const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
       if (!this.grid.isBlocked(tx, ty)) return null;
       const w = this.grid.nearestWalkable(tx, ty);
       return w ? this.grid.tileToWorld(w.x, w.y) : null;
     };
-    let p = reloc(this.villager.x, this.villager.y);
+    const relocEnemy = (px: number, py: number): { x: number; y: number } | null => {
+      const tx = Math.floor(px / TILE), ty = Math.floor(py / TILE);
+      if (!this.grid.isEnemyBlocked(tx, ty)) return null;
+      const w = this.grid.nearestWalkable(tx, ty, 6, true);
+      return w ? this.grid.tileToWorld(w.x, w.y) : null;
+    };
+    let p = relocFriendly(this.villager.x, this.villager.y);
     if (p) this.villager.nudgeTo(p.x, p.y);
-    p = reloc(this.hero.x, this.hero.y);
+    p = relocFriendly(this.hero.x, this.hero.y);
     if (p) { this.hero.x = p.x; this.hero.y = p.y; }
     for (const e of this.enemies) {
-      p = reloc(e.x, e.y);
-      if (p) { e.x = p.x; e.y = p.y; }
+      const q = relocEnemy(e.x, e.y);
+      if (q) { e.x = q.x; e.y = q.y; }
     }
     void b;
   }
@@ -281,6 +292,17 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    if (this.tool === "repair") {
+      const t = this.grid.worldToTile(pointer.worldX, pointer.worldY);
+      const b = this.occupancyAt(t.x, t.y);
+      if (b && b.built && b.isDamaged()) {
+        this.villager.setRepairTarget(b);
+        ringMarker(this, b.center.x, b.center.y, COLORS.villager);
+        floatingText(this, b.center.x, b.center.y - 8, "repair!", COLORS.villager);
+      }
+      return;
+    }
+
     if (this.currentDef()) {
       this.dragging = true;
       const t = this.grid.worldToTile(pointer.worldX, pointer.worldY);
@@ -316,8 +338,20 @@ export class GameScene extends Phaser.Scene {
   private drawGhost(): void {
     const g = this.ghost;
     g.clear();
+    if (this.state !== "playing" || !this.hoverTile) return;
+
+    // Repair tool: outline the damaged building under the cursor.
+    if (this.tool === "repair") {
+      const b = this.occupancyAt(this.hoverTile.x, this.hoverTile.y);
+      if (b && b.built && b.isDamaged()) {
+        g.lineStyle(2, COLORS.villager, 0.95);
+        g.strokeRect(b.px + 1, b.py + 1, b.pw - 2, b.ph - 2);
+      }
+      return;
+    }
+
     const def = this.currentDef();
-    if (this.state !== "playing" || !def || !this.hoverTile) return;
+    if (!def) return;
     const t = this.hoverTile;
     if (!this.grid.inBounds(t.x, t.y)) return;
     const col = this.canPlace(t.x, t.y, def) ? COLORS.ghostOk : COLORS.ghostBad;

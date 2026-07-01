@@ -1,7 +1,8 @@
 import { COLORS, type ResourceCost } from "../config";
 
-// Behaviour category. Drives how a finished building acts each tick.
-export type BuildKind = "wall" | "tower" | "stockpile";
+// Behaviour category. Drives how a finished building acts each tick and how it
+// blocks movement (a gate blocks enemies but lets friendly units pass).
+export type BuildKind = "wall" | "tower" | "gate" | "stockpile";
 
 export interface BuildingDef {
   id: string;
@@ -35,6 +36,12 @@ export const BUILD_DEFS: Record<string, BuildingDef> = {
     fill: COLORS.tower, stroke: COLORS.towerStroke,
     range: 150, damage: 12, attackCd: 0.8,
   },
+  gate: {
+    id: "gate", name: "Gate", kind: "gate",
+    cost: { wood: 25 }, buildTime: 3, maxHp: 140,
+    footprint: { w: 1, h: 1 }, blocksMovement: true, hotkey: "3",
+    fill: COLORS.gate, stroke: COLORS.gateStroke,
+  },
   stockpile: {
     id: "stockpile", name: "Stockpile", kind: "stockpile",
     cost: {}, buildTime: 0, maxHp: 600,
@@ -44,7 +51,7 @@ export const BUILD_DEFS: Record<string, BuildingDef> = {
 };
 
 // The player-placeable buildings, in menu order.
-export const BUILDABLES: BuildingDef[] = [BUILD_DEFS.palisade, BUILD_DEFS.watchtower];
+export const BUILDABLES: BuildingDef[] = [BUILD_DEFS.palisade, BUILD_DEFS.watchtower, BUILD_DEFS.gate];
 
 export function canAfford(econ: { wood: number; gold: number }, cost: ResourceCost): boolean {
   return econ.wood >= (cost.wood ?? 0) && econ.gold >= (cost.gold ?? 0);

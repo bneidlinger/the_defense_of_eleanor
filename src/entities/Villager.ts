@@ -22,6 +22,7 @@ export class Villager {
   private taskKind: TaskKind | null = null;
   private path: Tile[] = [];
   private repathTimer = 0;
+  private priorityRepair: Building | null = null; // player-commanded repair
 
   private body: Phaser.GameObjects.Arc;
   private bar: HpBar;
@@ -76,9 +77,24 @@ export class Villager {
     return b.isDamaged();
   }
 
+  // Player clicked a damaged building with the repair tool — jump the queue.
+  setRepairTarget(b: Building): void {
+    this.priorityRepair = b;
+    this.clearTask();
+  }
+
   private pickTask(scene: GameScene): void {
     let best: Building | null = null;
     let bestD = Infinity;
+
+    // Priority 0: a building the player explicitly ordered repaired.
+    if (this.priorityRepair) {
+      if (!this.priorityRepair.dead && this.priorityRepair.isDamaged() && scene.economy.wood > 0) {
+        this.assign(this.priorityRepair, "repair");
+        return;
+      }
+      this.priorityRepair = null;
+    }
 
     // Priority 1: build the nearest unfinished foundation.
     for (const b of scene.buildings) {

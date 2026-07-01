@@ -62,7 +62,7 @@ export class Enemy {
     this.repathTimer -= dt;
     if (this.path.length === 0 || this.repathTimer <= 0 ||
         !this.lastGoal || this.lastGoal.x !== gx || this.lastGoal.y !== gy) {
-      this.path = scene.findPath(this.tileX, this.tileY, gx, gy, { passWalls: true, wallCost: WALL_PATH_COST }) ?? [];
+      this.path = scene.findPath(this.tileX, this.tileY, gx, gy, { passWalls: true, wallCost: WALL_PATH_COST, forEnemy: true }) ?? [];
       this.repathTimer = 0.4 + Math.random() * 0.3;
       this.lastGoal = { x: gx, y: gy };
     }
@@ -84,9 +84,9 @@ export class Enemy {
     if (h.active && Math.hypot(h.x - this.x, h.y - this.y) <= range) {
       return this.strike(scene, () => h.takeDamage(this.def.damage), h.x, h.y);
     }
-    // Wall / stockpile directly on our route?
+    // Wall / gate / stockpile directly on our route?
     const nt = this.path[0];
-    if (nt && scene.grid.isBlocked(nt.x, nt.y)) {
+    if (nt && scene.grid.isEnemyBlocked(nt.x, nt.y)) {
       const b = scene.occupancyAt(nt.x, nt.y);
       if (b) {
         const c = b.center;
@@ -118,13 +118,13 @@ export class Enemy {
     const w = scene.grid.tileToWorld(nt.x, nt.y);
     const dx = w.x - this.x, dy = w.y - this.y;
     const d = Math.hypot(dx, dy);
-    if (d < 3 && !scene.grid.isBlocked(nt.x, nt.y)) { this.path.shift(); return; }
+    if (d < 3 && !scene.grid.isEnemyBlocked(nt.x, nt.y)) { this.path.shift(); return; }
     if (d < 0.001) return;
     const step = Math.min(this.def.speed * dt, d);
     const nx = this.x + (dx / d) * step;
     const ny = this.y + (dy / d) * step;
     // Never walk into a solid tile — that is a breach target, not a path tile.
-    if (!scene.grid.isBlocked(Math.floor(nx / TILE), Math.floor(ny / TILE))) {
+    if (!scene.grid.isEnemyBlocked(Math.floor(nx / TILE), Math.floor(ny / TILE))) {
       this.x = nx;
       this.y = ny;
     }
@@ -137,7 +137,7 @@ export class Enemy {
     const step = Math.min(this.def.speed * dt, d);
     const nx = this.x + (dx / d) * step;
     const ny = this.y + (dy / d) * step;
-    if (!scene.grid.isBlocked(Math.floor(nx / TILE), Math.floor(ny / TILE))) {
+    if (!scene.grid.isEnemyBlocked(Math.floor(nx / TILE), Math.floor(ny / TILE))) {
       this.x = nx;
       this.y = ny;
     }
