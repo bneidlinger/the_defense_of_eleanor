@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import {
-  TILE, COLS, ROWS, FIELD_W, FIELD_H, COLORS, ECON_START,
+  TILE, COLS, ROWS, FIELD_W, FIELD_H, COLORS, ECON_START, KEEP,
   SCENE_GAME, SCENE_UI, type EnemyKind,
 } from "../config";
 import { Grid, type Tile } from "../core/Grid";
@@ -97,6 +97,12 @@ export class GameScene extends Phaser.Scene {
     }
     this.input.keyboard?.on("keydown-ESC", () => { if (this.state === "playing") this.tool = "none"; });
     this.input.keyboard?.on("keydown-R", () => { if (this.state === "over") this.restart(); else this.tool = "repair"; });
+    this.input.keyboard?.on("keydown-G", () => {
+      if (this.state !== "playing") return;
+      const h = this.hero;
+      if (h.garrisoned || h.headingToGarrison) h.moveTo(h.x, h.y, this);
+      else { const k = this.nearestKeep(h.x, h.y); if (k) h.garrisonAt(k, this); }
+    });
 
     if (!this.scene.isActive(SCENE_UI)) this.scene.launch(SCENE_UI);
 
@@ -110,6 +116,7 @@ export class GameScene extends Phaser.Scene {
     this.wave.update(dt, this);
     this.villager.update(dt, this);
     this.hero.update(dt, this);
+    if (this.hero.garrisoned) this.economy.gold += KEEP.goldPerSec * dt; // Keep economy bonus
     for (const e of this.enemies) e.update(dt, this);
     for (const b of this.buildings) b.update(dt, this);   // towers acquire & fire
     for (const p of this.projectiles) p.update(dt, this); // arrows fly & strike
@@ -166,6 +173,23 @@ export class GameScene extends Phaser.Scene {
       if (d <= bd) { bd = d; best = e; }
     }
     return best;
+  }
+
+  nearestKeep(x: number, y: number): Building | null {
+    let best: Building | null = null;
+    let bd = Infinity;
+    for (const b of this.buildings) {
+      if (b.def.kind !== "keep" || !b.built) continue;
+      const c = b.center;
+      const d = (c.x - x) ** 2 + (c.y - y) ** 2;
+      if (d < bd) { bd = d; best = b; }
+    }
+    return best;
+  }
+
+  // Villager build/repair speed multiplier — boosted while the Warden garrisons a Keep.
+  villagerWorkSpeed(): number {
+    return this.hero.garrisoned ? KEEP.workMult : 1;
   }
 
   spendWood(n: number): void { this.economy.wood = Math.max(0, this.economy.wood - n); }
@@ -287,8 +311,15 @@ export class GameScene extends Phaser.Scene {
     if (pointer.worldY >= FIELD_H) return; // HUD strip belongs to the UI scene
 
     if (pointer.rightButtonDown()) {
-      this.hero.moveTo(pointer.worldX, pointer.worldY, this);
-      ringMarker(this, pointer.worldX, pointer.worldY);
+      const t = this.grid.worldToTile(pointer.worldX, pointer.worldY);
+      const b = this.occupancyAt(t.x, t.y);
+      if (b && b.def.kind === "keep" && b.built) {
+        this.hero.garrisonAt(b, this);
+        ringMarker(this, b.center.x, b.center.y, COLORS.accent);
+      } else {
+        this.hero.moveTo(pointer.worldX, pointer.worldY, this);
+        ringMarker(this, pointer.worldX, pointer.worldY);
+      }
       return;
     }
 

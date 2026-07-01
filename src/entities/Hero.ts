@@ -1,6 +1,7 @@
 import Phaser from "phaser";
-import { TILE, FIELD_W, FIELD_H, COLORS, HERO } from "../config";
+import { TILE, FIELD_W, FIELD_H, COLORS, HERO, KEEP } from "../config";
 import type { Tile } from "../core/Grid";
+import type { Building } from "./Building";
 import type { GameScene } from "../scenes/GameScene";
 import { HpBar, popFlash } from "../core/effects";
 
@@ -15,7 +16,9 @@ export class Hero {
   hp = HERO.maxHp;
   readonly maxHp = HERO.maxHp;
   downed = false;
+  garrisoned = false;
   private downedTimer = 0;
+  private garrisonTarget: Building | null = null;
 
   private holdX: number;
   private holdY: number;
@@ -37,11 +40,18 @@ export class Hero {
 
   get tileX(): number { return Math.floor(this.x / TILE); }
   get tileY(): number { return Math.floor(this.y / TILE); }
-  get active(): boolean { return !this.downed; }
+  get active(): boolean { return !this.downed && !this.garrisoned; }
+  get headingToGarrison(): boolean { return !this.garrisoned && this.garrisonTarget !== null; }
 
-  // Right-click command. Ignored while downed.
+  // Right-click command. Deploys the Warden (leaving any Keep) and moves him.
   moveTo(wx: number, wy: number, scene: GameScene): void {
     if (this.downed) return;
+    if (this.garrisoned) {
+      const w = scene.grid.nearestWalkable(this.tileX, this.tileY);
+      if (w) { const c = scene.grid.tileToWorld(w.x, w.y); this.x = c.x; this.y = c.y; }
+    }
+    this.garrisoned = false;
+    this.garrisonTarget = null;
     this.holdX = Phaser.Math.Clamp(wx, 6, FIELD_W - 6);
     this.holdY = Phaser.Math.Clamp(wy, 6, FIELD_H - 6);
     let goal = scene.grid.worldToTile(this.holdX, this.holdY);
@@ -57,8 +67,24 @@ export class Hero {
     this.path = scene.findPath(this.tileX, this.tileY, goal.x, goal.y) ?? [];
   }
 
-  takeDamage(d: number): void {
+  // Order the Warden to garrison a Keep: walk there, then enter when close.
+  garrisonAt(keep: Building, scene: GameScene): void {
     if (this.downed) return;
+    this.garrisonTarget = keep;
+    this.garrisoned = false;
+    const c = keep.center;
+    let goal = scene.grid.worldToTile(c.x, c.y);
+    if (scene.grid.isBlocked(goal.x, goal.y)) {
+      const w = scene.grid.nearestWalkable(goal.x, goal.y);
+      if (w) goal = w;
+    }
+    this.holdX = c.x;
+    this.holdY = c.y;
+    this.path = scene.findPath(this.tileX, this.tileY, goal.x, goal.y) ?? [];
+  }
+
+  takeDamage(d: number): void {
+    if (this.downed || this.garrisoned) return;
     this.hp -= d;
     this.combatTimer = 2;
     if (this.hp <= 0) {
@@ -74,6 +100,32 @@ export class Hero {
       this.updateDowned(dt, scene);
       this.draw();
       return;
+    }
+
+    if (this.garrisoned) {
+      this.updateGarrisoned(dt);
+      this.draw();
+      return;
+    }
+
+    // En route to a Keep: walk to it and enter when close enough.
+    if (this.garrisonTarget) {
+      if (this.garrisonTarget.dead) {
+        this.garrisonTarget = null;
+      } else {
+        const c = this.garrisonTarget.center;
+        if (Math.hypot(c.x - this.x, c.y - this.y) <= KEEP.enterRange) {
+          this.garrisoned = true;
+          this.path = [];
+          this.x = c.x; this.y = c.y;
+          this.draw();
+          return;
+        }
+        if (this.path.length > 0) this.followPath(dt, scene);
+        else this.stepToward(c.x, c.y, dt, scene);
+        this.draw();
+        return;
+      }
     }
 
     this.attackTimer -= dt;
@@ -105,10 +157,24 @@ export class Hero {
     this.draw();
   }
 
+  // Garrisoned: recover fast, sit inside the Keep, invulnerable. The Keep's
+  // fortress bonus is applied by GameScene while this is true.
+  private updateGarrisoned(dt: number): void {
+    if (!this.garrisonTarget || this.garrisonTarget.dead) {
+      this.garrisoned = false;
+      this.garrisonTarget = null;
+      return;
+    }
+    const c = this.garrisonTarget.center;
+    this.x = c.x; this.y = c.y;
+    this.hp = Math.min(this.maxHp, this.hp + KEEP.healRate * dt);
+  }
+
   private updateDowned(dt: number, scene: GameScene): void {
     this.downedTimer -= dt;
-    const s = scene.stockpile.center;
-    this.stepToward(s.x, s.y, dt, scene, 0.55); // limp home
+    const keep = scene.nearestKeep(this.x, this.y);
+    const home = keep ? keep.center : scene.stockpile.center;
+    this.stepToward(home.x, home.y, dt, scene, 0.55); // limp to the Keep, else the stockpile
     this.hp = Math.min(this.maxHp, this.hp + (this.maxHp / HERO.downedTime) * dt);
     if (this.downedTimer <= 0) {
       this.downed = false;

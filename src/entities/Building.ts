@@ -152,6 +152,18 @@ export class Building {
       g.lineStyle(2, COLORS.gateBar, 0.85);
       for (let i = 1; i <= 2; i++) { const bx = this.px + (this.pw * i) / 3; g.lineBetween(bx, this.py + 3, bx, this.py + this.ph - 3); }
       g.lineBetween(this.px + 3, this.py + this.ph / 2, this.px + this.pw - 3, this.py + this.ph / 2);
+    } else if (this.def.kind === "keep") {
+      g.fillStyle(ratio > 0.5 ? this.def.fill : COLORS.wallDamaged, 1);
+      g.fillRect(this.px + 1, this.py + 1, this.pw - 2, this.ph - 2);
+      g.lineStyle(2, this.def.stroke, 1);
+      g.strokeRect(this.px + 1, this.py + 1, this.pw - 2, this.ph - 2);
+      g.fillStyle(COLORS.keepRoof, 1);
+      g.fillRect(this.px + 5, this.py + 5, this.pw - 10, this.ph - 10);
+      // banner
+      g.lineStyle(2, COLORS.keepBanner, 1);
+      g.lineBetween(c.x, this.py + 3, c.x, this.py + this.ph - 6);
+      g.fillStyle(COLORS.keepBanner, 1);
+      g.fillRect(c.x, this.py + 3, 7, 5);
     } else {
       g.fillStyle(this.def.fill, 1);
       g.fillRect(this.px + 2, this.py + 2, this.pw - 4, this.ph - 4);

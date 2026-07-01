@@ -131,11 +131,12 @@ export class Villager {
 
   private work(dt: number, scene: GameScene): void {
     const task = this.task!;
+    const speed = scene.villagerWorkSpeed(); // boosted while the Warden garrisons a Keep
     if (this.taskKind === "build") {
-      const done = task.addBuildProgress(dt);
+      const done = task.addBuildProgress(dt * speed);
       if (done) { scene.onFoundationBuilt(task); this.clearTask(); }
     } else {
-      const heal = VILLAGER.repairRate * dt;
+      const heal = VILLAGER.repairRate * dt * speed;
       const woodCost = heal * VILLAGER.repairWoodPerHp;
       if (scene.economy.wood >= woodCost) {
         scene.spendWood(woodCost);

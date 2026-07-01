@@ -42,6 +42,11 @@ export const COLORS = {
   gateStroke: 0x4a3a20,
   gateBar: 0x2f2717,
 
+  keep: 0x8f959c,
+  keepStroke: 0x474b51,
+  keepRoof: 0x5d6068,
+  keepBanner: 0x4ea3ff,
+
   villager: 0x74e88a,
   villagerStroke: 0x2f7e43,
   hero: 0x4ea3ff,
@@ -72,6 +77,16 @@ export const PROJECTILE = {
   speed: 340, // px/sec
   hitRadius: 9,
   length: 10,
+};
+
+// Hero garrison (§7.2): while the Warden garrisons a Keep he recovers fast and
+// projects a fortress bonus — but he can't fight. Deploying is the emergency
+// generator, not easy mode.
+export const KEEP = {
+  healRate: 30, // hero hp/sec while garrisoned
+  goldPerSec: 2, // passive economy while garrisoned
+  workMult: 1.5, // villager build/repair speed multiplier while garrisoned
+  enterRange: TILE * 2, // how close the hero must get to the Keep to enter
 };
 
 export const ECON_START = { wood: 120, gold: 30 };

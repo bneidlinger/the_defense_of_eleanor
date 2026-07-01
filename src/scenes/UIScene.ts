@@ -40,26 +40,26 @@ export class UIScene extends Phaser.Scene {
 
     this.dyn = this.add.graphics().setDepth(51);
 
-    this.woodText = this.add.text(20, this.y0 + 14, "", { fontFamily: mono, fontSize: "16px", color: hex(COLORS.text), fontStyle: "bold" }).setDepth(52);
-    this.goldText = this.add.text(20, this.y0 + 40, "", { fontFamily: mono, fontSize: "16px", color: hex(COLORS.stockpile), fontStyle: "bold" }).setDepth(52);
+    this.woodText = this.add.text(12, this.y0 + 14, "", { fontFamily: mono, fontSize: "16px", color: hex(COLORS.text), fontStyle: "bold" }).setDepth(52);
+    this.goldText = this.add.text(12, this.y0 + 40, "", { fontFamily: mono, fontSize: "16px", color: hex(COLORS.stockpile), fontStyle: "bold" }).setDepth(52);
 
-    this.villLabel = this.add.text(160, this.y0 + 12, "VILLAGER", { fontFamily: mono, fontSize: "12px", color: hex(COLORS.villager) }).setDepth(52);
-    this.heroLabel = this.add.text(160, this.y0 + 46, "WARDEN", { fontFamily: mono, fontSize: "12px", color: hex(COLORS.accent) }).setDepth(52);
+    this.villLabel = this.add.text(150, this.y0 + 12, "VILLAGER", { fontFamily: mono, fontSize: "12px", color: hex(COLORS.villager) }).setDepth(52);
+    this.heroLabel = this.add.text(150, this.y0 + 46, "WARDEN", { fontFamily: mono, fontSize: "12px", color: hex(COLORS.accent) }).setDepth(52);
 
-    this.waveText = this.add.text(540, this.y0 + 22, "", { fontFamily: mono, fontSize: "16px", color: hex(COLORS.warn), fontStyle: "bold" }).setOrigin(0.5).setDepth(52);
-    this.killsText = this.add.text(540, this.y0 + 48, "", { fontFamily: mono, fontSize: "13px", color: hex(COLORS.textDim) }).setOrigin(0.5).setDepth(52);
+    this.waveText = this.add.text(455, this.y0 + 22, "", { fontFamily: mono, fontSize: "15px", color: hex(COLORS.warn), fontStyle: "bold" }).setOrigin(0.5).setDepth(52);
+    this.killsText = this.add.text(455, this.y0 + 48, "", { fontFamily: mono, fontSize: "13px", color: hex(COLORS.textDim) }).setOrigin(0.5).setDepth(52);
 
     // Tool buttons: the buildables, then a Repair tool.
     const entries: { id: string; def: BuildingDef | null; l1: string; l2: string }[] = BUILDABLES.map((def) => ({ id: def.id, def, l1: `[${def.hotkey}] ${def.name}`, l2: formatCost(def.cost) }));
     entries.push({ id: "repair", def: null, l1: "[R] Repair", l2: "damaged" });
 
-    const bw = 118, bh = 44, gap = 6;
+    const bw = 104, bh = 44, gap = 5;
     const totalW = entries.length * bw + (entries.length - 1) * gap;
-    let bx = CANVAS_W - 16 - totalW;
+    let bx = CANVAS_W - 14 - totalW;
     for (const e of entries) {
-      const cx = bx + bw / 2, cy = this.y0 + 28;
+      const cx = bx + bw / 2, cy = this.y0 + 26;
       const rect = this.add.rectangle(cx, cy, bw, bh, COLORS.hudPanel).setStrokeStyle(2, COLORS.hudStroke).setDepth(52).setInteractive({ useHandCursor: true });
-      const label = this.add.text(cx, cy, `${e.l1}\n${e.l2}`, { fontFamily: mono, fontSize: "12px", color: hex(COLORS.text), align: "center" }).setOrigin(0.5).setDepth(53);
+      const label = this.add.text(cx, cy, `${e.l1}\n${e.l2}`, { fontFamily: mono, fontSize: "11px", color: hex(COLORS.text), align: "center" }).setOrigin(0.5).setDepth(53);
       const id = e.id;
       rect.on("pointerdown", () => { const gs = this.scene.get(SCENE_GAME) as GameScene; if (gs && gs.state === "playing") gs.tool = id; });
       this.buttons.push({ id: e.id, def: e.def, rect, label });
@@ -67,8 +67,8 @@ export class UIScene extends Phaser.Scene {
     }
 
     this.add.text(
-      CANVAS_W - 16, this.y0 + 64,
-      "L-drag build   R-click Warden   [1]wall [2]tower [3]gate [R]repair   [Esc] cancel",
+      CANVAS_W - 14, this.y0 + 62,
+      "R-click: move / garrison Warden    [1]wall [2]tower [3]gate [4]keep    [R]repair  [G]garrison  [Esc]cancel",
       { fontFamily: mono, fontSize: "11px", color: hex(COLORS.textDim) },
     ).setOrigin(1, 0).setDepth(52);
 
@@ -89,12 +89,12 @@ export class UIScene extends Phaser.Scene {
     this.goldText.setText(`GOLD  ${Math.floor(gs.economy.gold)}`);
     this.waveText.setText(gs.wave.status(gs));
     this.killsText.setText(`Kills ${gs.kills}     Score ${gs.score}`);
-    this.heroLabel.setText(gs.hero.downed ? "WARDEN — DOWNED" : "WARDEN");
+    this.heroLabel.setText(gs.hero.downed ? "WARDEN — DOWNED" : gs.hero.garrisoned ? "WARDEN — GARRISONED" : "WARDEN");
 
     const g = this.dyn;
     g.clear();
-    this.bar(g, 160, this.y0 + 28, 150, 9, gs.villager.alive ? gs.villager.hp / gs.villager.maxHp : 0);
-    this.bar(g, 160, this.y0 + 62, 150, 9, gs.hero.hp / gs.hero.maxHp);
+    this.bar(g, 150, this.y0 + 28, 140, 9, gs.villager.alive ? gs.villager.hp / gs.villager.maxHp : 0);
+    this.bar(g, 150, this.y0 + 62, 140, 9, gs.hero.hp / gs.hero.maxHp);
 
     for (const b of this.buttons) {
       const active = gs.tool === b.id;
