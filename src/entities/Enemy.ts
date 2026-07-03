@@ -14,6 +14,8 @@ export class Enemy {
   readonly def: (typeof ENEMIES)[EnemyKind];
   x: number;
   y: number;
+  prevX: number; // sim position at the start of the current step (for interpolation)
+  prevY: number;
   hp: number;
   alive = true;
 
@@ -29,6 +31,8 @@ export class Enemy {
     this.def = ENEMIES[kind];
     this.x = x;
     this.y = y;
+    this.prevX = x;
+    this.prevY = y;
     this.hp = this.def.maxHp;
     this.body = scene.add.circle(x, y, this.def.radius, this.def.color).setStrokeStyle(1.5, 0x000000, 0.35).setDepth(20);
     this.bar = new HpBar(scene, 16);
@@ -46,7 +50,14 @@ export class Enemy {
     }
   }
 
-  update(dt: number, scene: GameScene): void {
+  // Snapshot the pre-step position so the renderer can interpolate toward the
+  // position this step produces.
+  beginStep(): void { this.prevX = this.x; this.prevY = this.y; }
+
+  // Collapse interpolation after a teleport (e.g. shoved off a finished wall).
+  snap(): void { this.prevX = this.x; this.prevY = this.y; }
+
+  step(dt: number, scene: GameScene): void {
     if (!this.alive) return;
     this.attackTimer -= dt;
 
@@ -67,9 +78,8 @@ export class Enemy {
       this.lastGoal = { x: gx, y: gy };
     }
 
-    if (this.tryAttack(scene)) { this.draw(); return; }
+    if (this.tryAttack(scene)) return;
     this.move(dt, scene);
-    this.draw();
   }
 
   // Returns true if engaged (attacking, or holding between swings).
@@ -143,9 +153,11 @@ export class Enemy {
     }
   }
 
-  private draw(): void {
-    this.body.setPosition(this.x, this.y);
-    this.bar.set(this.x, this.y - this.def.radius - 6, this.hp / this.def.maxHp, this.hp < this.def.maxHp);
+  render(alpha: number): void {
+    const rx = this.prevX + (this.x - this.prevX) * alpha;
+    const ry = this.prevY + (this.y - this.prevY) * alpha;
+    this.body.setPosition(rx, ry);
+    this.bar.set(rx, ry - this.def.radius - 6, this.hp / this.def.maxHp, this.hp < this.def.maxHp);
   }
 
   destroy(): void {

@@ -14,6 +14,8 @@ type TaskKind = "build" | "repair";
 export class Villager {
   x: number;
   y: number;
+  prevX: number; // sim position at the start of the current step (for interpolation)
+  prevY: number;
   hp = VILLAGER.maxHp;
   readonly maxHp = VILLAGER.maxHp;
   alive = true;
@@ -30,6 +32,8 @@ export class Villager {
   constructor(private scene: GameScene, x: number, y: number) {
     this.x = x;
     this.y = y;
+    this.prevX = x;
+    this.prevY = y;
     this.body = scene.add.circle(x, y, 8, COLORS.villager).setStrokeStyle(2, COLORS.villagerStroke).setDepth(20);
     this.bar = new HpBar(scene, 18);
   }
@@ -46,11 +50,17 @@ export class Villager {
       this.hp = 0;
       this.alive = false;
       this.body.setVisible(false);
-      this.bar.set(this.x, this.y, 0, false);
     }
   }
 
-  update(dt: number, scene: GameScene): void {
+  // Snapshot the pre-step position so the renderer can interpolate toward the
+  // position this step produces.
+  beginStep(): void { this.prevX = this.x; this.prevY = this.y; }
+
+  // Collapse interpolation after a teleport.
+  snap(): void { this.prevX = this.x; this.prevY = this.y; }
+
+  step(dt: number, scene: GameScene): void {
     if (!this.alive) return;
 
     if (this.task && !this.taskStillValid(this.task)) this.clearTask();
@@ -67,8 +77,6 @@ export class Villager {
     } else {
       this.path = [];
     }
-
-    this.draw();
   }
 
   private taskStillValid(b: Building): boolean {
@@ -208,11 +216,15 @@ export class Villager {
   nudgeTo(x: number, y: number): void {
     this.x = x;
     this.y = y;
+    this.prevX = x;
+    this.prevY = y;
     this.path = [];
   }
 
-  private draw(): void {
-    this.body.setPosition(this.x, this.y);
-    this.bar.set(this.x, this.y - 14, this.hp / this.maxHp, this.alive);
+  render(alpha: number): void {
+    const rx = this.prevX + (this.x - this.prevX) * alpha;
+    const ry = this.prevY + (this.y - this.prevY) * alpha;
+    this.body.setPosition(rx, ry);
+    this.bar.set(rx, ry - 14, this.hp / this.maxHp, this.alive);
   }
 }

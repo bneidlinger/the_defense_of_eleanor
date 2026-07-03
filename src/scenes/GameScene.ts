@@ -51,6 +51,14 @@ export class GameScene extends Phaser.Scene {
   private dragging = false;
   private lastPlacedIdx = -1;
 
+  // Fixed-timestep sim (§3.1). The simulation advances in identical 60 Hz
+  // ticks; rendering interpolates between the two most recent sim states so
+  // motion is smooth and frame-rate independent. FIXED_DT is the sim step in
+  // seconds; the accumulator banks real elapsed time between steps.
+  private readonly FIXED_DT = 1 / 60;
+  private readonly MAX_STEPS = 5; // spiral-of-death guard on a slow frame
+  private accumulator = 0;
+
   constructor() { super(SCENE_GAME); }
 
   create(): void {
@@ -72,6 +80,7 @@ export class GameScene extends Phaser.Scene {
     this.dragging = false;
     this.lastPlacedIdx = -1;
     this.banner = undefined;
+    this.accumulator = 0;
 
     this.drawBackground();
 
@@ -110,16 +119,42 @@ export class GameScene extends Phaser.Scene {
   }
 
   override update(_time: number, delta: number): void {
-    if (this.state === "over") return;
-    const dt = Math.min(delta / 1000, 0.05);
+    // Advance the deterministic sim in fixed 60 Hz steps, then draw one
+    // interpolated frame between the two most recent sim states (§3.1).
+    if (this.state === "over") { this.renderActors(1); return; }
+
+    this.accumulator += Math.min(delta / 1000, 0.1); // clamp long stalls
+    let steps = 0;
+    while (this.accumulator >= this.FIXED_DT && steps < this.MAX_STEPS) {
+      this.stepSim(this.FIXED_DT);
+      this.accumulator -= this.FIXED_DT;
+      steps++;
+      // stepSim can end the run (stockpile/villager lost); stop advancing.
+      if ((this.state as GameState) === "over") break;
+    }
+    // Blew the step budget on a slow frame: drop the backlog, don't spiral.
+    if (steps >= this.MAX_STEPS) this.accumulator = 0;
+
+    const alpha = (this.state as GameState) === "over" ? 1 : this.accumulator / this.FIXED_DT;
+    this.renderActors(alpha);
+  }
+
+  // One deterministic simulation tick. Every rate here is per-second, so the
+  // fixed dt keeps behaviour identical regardless of display refresh rate.
+  private stepSim(dt: number): void {
+    // Snapshot positions so the renderer can interpolate toward the new ones.
+    this.villager.beginStep();
+    this.hero.beginStep();
+    for (const e of this.enemies) e.beginStep();
+    for (const p of this.projectiles) p.beginStep();
 
     this.wave.update(dt, this);
-    this.villager.update(dt, this);
-    this.hero.update(dt, this);
+    this.villager.step(dt, this);
+    this.hero.step(dt, this);
     if (this.hero.garrisoned) this.economy.gold += KEEP.goldPerSec * dt; // Keep economy bonus
-    for (const e of this.enemies) e.update(dt, this);
+    for (const e of this.enemies) e.step(dt, this);
     for (const b of this.buildings) b.update(dt, this);   // towers acquire & fire
-    for (const p of this.projectiles) p.update(dt, this); // arrows fly & strike
+    for (const p of this.projectiles) p.step(dt, this);   // arrows fly & strike
 
     // Reap spent projectiles.
     if (this.projectiles.length > 0) {
@@ -152,6 +187,16 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (!this.villager.alive) this.gameOver("Your villager has fallen.");
+  }
+
+  // Draw an interpolated frame. `alpha` (0..1) is how far the render clock sits
+  // between the previous and current sim states. Buildings redraw event-driven,
+  // so only the moving actors interpolate here.
+  private renderActors(alpha: number): void {
+    this.villager.render(alpha);
+    this.hero.render(alpha);
+    for (const e of this.enemies) e.render(alpha);
+    for (const p of this.projectiles) p.render(alpha);
   }
 
   // ---- callbacks used by entities -------------------------------------------
@@ -271,10 +316,10 @@ export class GameScene extends Phaser.Scene {
     let p = relocFriendly(this.villager.x, this.villager.y);
     if (p) this.villager.nudgeTo(p.x, p.y);
     p = relocFriendly(this.hero.x, this.hero.y);
-    if (p) { this.hero.x = p.x; this.hero.y = p.y; }
+    if (p) { this.hero.x = p.x; this.hero.y = p.y; this.hero.snap(); }
     for (const e of this.enemies) {
       const q = relocEnemy(e.x, e.y);
-      if (q) { e.x = q.x; e.y = q.y; }
+      if (q) { e.x = q.x; e.y = q.y; e.snap(); }
     }
     void b;
   }

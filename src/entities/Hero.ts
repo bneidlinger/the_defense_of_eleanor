@@ -13,6 +13,8 @@ import { HpBar, popFlash } from "../core/effects";
 export class Hero {
   x: number;
   y: number;
+  prevX: number; // sim position at the start of the current step (for interpolation)
+  prevY: number;
   hp = HERO.maxHp;
   readonly maxHp = HERO.maxHp;
   downed = false;
@@ -32,6 +34,8 @@ export class Hero {
   constructor(private scene: GameScene, x: number, y: number) {
     this.x = x;
     this.y = y;
+    this.prevX = x;
+    this.prevY = y;
     this.holdX = x;
     this.holdY = y;
     this.body = scene.add.circle(x, y, 11, COLORS.hero).setStrokeStyle(2, COLORS.heroStroke).setDepth(22);
@@ -48,7 +52,7 @@ export class Hero {
     if (this.downed) return;
     if (this.garrisoned) {
       const w = scene.grid.nearestWalkable(this.tileX, this.tileY);
-      if (w) { const c = scene.grid.tileToWorld(w.x, w.y); this.x = c.x; this.y = c.y; }
+      if (w) { const c = scene.grid.tileToWorld(w.x, w.y); this.x = c.x; this.y = c.y; this.snap(); }
     }
     this.garrisoned = false;
     this.garrisonTarget = null;
@@ -95,16 +99,21 @@ export class Hero {
     }
   }
 
-  update(dt: number, scene: GameScene): void {
+  // Snapshot the pre-step position so the renderer can interpolate toward the
+  // position this step produces.
+  beginStep(): void { this.prevX = this.x; this.prevY = this.y; }
+
+  // Collapse interpolation after a teleport (garrison enter/leave, wall eject).
+  snap(): void { this.prevX = this.x; this.prevY = this.y; }
+
+  step(dt: number, scene: GameScene): void {
     if (this.downed) {
       this.updateDowned(dt, scene);
-      this.draw();
       return;
     }
 
     if (this.garrisoned) {
       this.updateGarrisoned(dt);
-      this.draw();
       return;
     }
 
@@ -118,12 +127,11 @@ export class Hero {
           this.garrisoned = true;
           this.path = [];
           this.x = c.x; this.y = c.y;
-          this.draw();
+          this.snap();
           return;
         }
         if (this.path.length > 0) this.followPath(dt, scene);
         else this.stepToward(c.x, c.y, dt, scene);
-        this.draw();
         return;
       }
     }
@@ -153,8 +161,6 @@ export class Hero {
     if (this.combatTimer <= 0 && this.hp < this.maxHp) {
       this.hp = Math.min(this.maxHp, this.hp + HERO.regen * dt);
     }
-
-    this.draw();
   }
 
   // Garrisoned: recover fast, sit inside the Keep, invulnerable. The Keep's
@@ -222,9 +228,11 @@ export class Hero {
     this.y = ny;
   }
 
-  private draw(): void {
-    this.body.setPosition(this.x, this.y);
+  render(alpha: number): void {
+    const rx = this.prevX + (this.x - this.prevX) * alpha;
+    const ry = this.prevY + (this.y - this.prevY) * alpha;
+    this.body.setPosition(rx, ry);
     this.body.fillColor = this.downed ? COLORS.heroDowned : COLORS.hero;
-    this.bar.set(this.x, this.y - 18, this.hp / this.maxHp, true);
+    this.bar.set(rx, ry - 18, this.hp / this.maxHp, true);
   }
 }

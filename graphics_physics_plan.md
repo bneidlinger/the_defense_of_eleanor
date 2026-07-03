@@ -1,7 +1,7 @@
 # Graphics & Physics Plan — Siegefield.io / *The Defense of Eleanor*
 
 **Status:** living plan · companion to [`siegefield_io_game_design.md`](siegefield_io_game_design.md)
-**Last updated:** 2026-06-29 (after MVP 1 — Keep + hero garrison)
+**Last updated:** 2026-07-02 (after §3.1 — fixed-timestep sim + interpolated rendering)
 **Scope:** how the *look* and the *juice* evolve, and the architecture they ride on.
 
 This document refines **§15 (Physics Philosophy)** and **§16 (Tech Stack)** of the design
@@ -21,11 +21,11 @@ Facts, not aspirations (confirmed against the source, not memory):
 | Physics | No engine. The word "physics" appears once — a comment in `core/Grid.ts`. |
 | Juice | Tween-based only: hit flashes, floating text, ring markers (`core/effects.ts`). |
 | Simulation | Deterministic grid: A* pathfinding, dual friendly/enemy walkability layers, tile occupancy. Data-driven buildings (`data/buildings.ts`). |
-| Timestep | **Variable & render-coupled**: `dt = Math.min(delta / 1000, 0.05)`. Not fixed-step, not replay-safe. |
+| Timestep | **Fixed 60 Hz accumulator with interpolated rendering** (§3.1, done). Sim advances in identical `1/60`s ticks (`GameScene.stepSim`); the renderer draws an interpolated frame (`renderActors(alpha)`). Frame-rate independent; a spiral-of-death guard caps catch-up steps. *Not yet seeded* — replay determinism also needs a seeded PRNG (Math.random still used in repath/spawn/tower desync). |
 | Stack | TypeScript · Vite · Phaser 3. (Rapier 2D from §16 intentionally **not** adopted.) |
 
-Two of these are load-bearing below: the **primitives-only renderer** (a strength to
-preserve) and the **variable timestep** (a liability to fix).
+One of these is load-bearing below: the **primitives-only renderer**, a strength to
+preserve. The variable-timestep liability is now resolved (§3.1).
 
 ---
 
@@ -52,18 +52,25 @@ Consequences:
 
 Cheap now, expensive after everything ossifies around them.
 
-### 3.1 Fixed-timestep sim + interpolated rendering
-Replace the variable, RAF-coupled `dt` with an accumulator: the sim advances in fixed
+### 3.1 Fixed-timestep sim + interpolated rendering — ✅ done (2026-07-02)
+Replaced the variable, RAF-coupled `dt` with an accumulator: the sim advances in fixed
 60 Hz steps; rendering interpolates between the two most recent states.
 
-Pays for:
-- **Replays & anti-cheat** (§21) — impossible with variable dt.
-- **Frame-rate independence** — identical behaviour on 30 Hz and 144 Hz.
-- **Smooth motion** at any refresh rate.
-- **A clean sim/render split** — and it removes the render-coupling that makes a headless
-  sim "freeze."
+Delivered:
+- **Frame-rate independence** — verified 60 sim ticks/wall-clock-second at both 30 Hz and
+  144 Hz, with render frames decoupled (30 vs 144).
+- **Smooth motion** — each moving actor (`Enemy`/`Villager`/`Hero`/`Projectile`) split into
+  `step(dt)` (pure sim) + `render(alpha)` (interpolate `prev`→current). Teleports call
+  `snap()` so they don't slide across the map.
+- **A first cut of the sim ↔ view split** (§3.3) — `GameScene.stepSim` vs `renderActors`.
+- **Spiral-of-death guard** — long stalls clamp to 0.1 s and cap at `MAX_STEPS` per frame.
 
-Effort: ~half a day. Highest-leverage item in this document.
+Still open toward **replays & anti-cheat** (§21): the sim is fixed-step but not yet *seeded*.
+`Math.random()` in enemy repath, wave spawn positions, and tower-fire desync must move to a
+seeded PRNG before replays are reproducible. Tracked as the next determinism step.
+
+Verification note: the loop is still RAF-driven, so the headless/backgrounded "freeze"
+persists in the preview tool — pump `s.stepSim(1/60)` manually to advance it.
 
 ### 3.2 Camera (pan + zoom)
 An endless fortress outgrows 1200×720 quickly. Phaser cameras: edge/drag/WASD pan, wheel
@@ -137,7 +144,8 @@ and when it earns its place.*
 
 ## 7. Recommended sequencing
 
-1. **Foundation** — fixed-timestep + camera + sim/view/FX split.
+1. **Foundation** — ~~fixed-timestep~~ (✅ §3.1) + camera (§3.2, next) + finish the
+   sim/view/FX split (§3.3).
 2. **Juice pass** — the MVP 2 particle / shake / hit-stop layer.
 3. **MVP 2 gameplay** — traps, multi-side attacks, sapper, fire — landing *on top of* a
    ready FX layer, so fire and collapse look great on debut.
@@ -149,8 +157,10 @@ later.
 
 ## 8. Decisions pending
 
-- **Foundation now vs. ride variable-dt longer?** → Recommendation: **now**. Never cheaper,
-  and it fixes replay + the preview-freeze in one stroke.
+- ~~**Foundation now vs. ride variable-dt longer?**~~ → **Resolved: done** (§3.1). Fixed
+  timestep + interpolation landed. *Correction to the earlier note:* it does **not** fix the
+  preview-freeze — the loop is still RAF-driven — and replay determinism additionally needs a
+  seeded PRNG. Both are follow-ups, not blockers.
 - **Post-playtest: juice-first vs. gameplay-first?** → Recommendation: **juice-first**,
   *unless* the playtest surfaces a balance problem (then tune `config.ts` /
   `data/buildings.ts` first).
